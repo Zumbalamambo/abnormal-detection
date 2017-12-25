@@ -1,40 +1,48 @@
 import cv2
 import numpy as np
-from os import mkdir
-from os.path import isfile, exists
+from os import mkdir, listdir, remove, rename
+from os.path import isfile, exists, splitext
 import sys
-import LK_Optical_Flow as LK
+from utils import *
 
-def checking_file_exist(link):
-    if not isfile(link):
-        print("File is not avalable: ", link)
-        return False
-    return True
+def cal_optical_flow(ucsd_pred1_link, output_link):
+    #Checking if output_link is not exist, create ouput folder
+    #Kiểm tra folder output có tồn tại không, nếu không thì tạo folder output
+    if not exists(output_link):
+        mkdir(output_link)
 
-#Create folder name
-#Tạo tên folder từ thứ tự của folder
-#Trong tập UCSDpred1 có 34 folder với tên gọi Train<số thứ tự>
-#Ví dụ folder thứ 34 có tên Train034
-def get_folder_name(i):
-    fname = "Train"
-    if i <10:
-        fname = fname + "00" + str(i)
-    elif i<100:
-        fname = fname + "0" + str(i)
-    return fname
+    #Tính optical flow trên ảnh 238x158
+    mLKOF = LK_Optical_Flow(238, 158)
 
-#Create file name
-#Tạo tên fole từ thứ tự của file
-#Trong tập UCSDpred1 mỗi folder có 200 frame ảnh, mỗi ảnh có tên gọi <số thứ tự>.tif
-#Ví dụ frame ảnh thứ 200 có tên 200.tif
-def get_file_name(i):
-    if i < 10:
-        fname = "00" + str(i) + ".tif"
-    elif i < 100:
-        fname = "0" + str(i) + ".tif"
-    else:
-        fname = str(i) + ".tif"
-    return fname
+    #Go through 34 folder of UCSDpred1
+    #Duyệt qua 34 folder của tập UCSDpred1
+    for i in range(1, 35):
+        folder_name = get_folder_name(i)
+        folder_out = output_link + "/" + folder_name
+        if not exists(folder_out):
+            mkdir(folder_out)
+        
+        #Go through 199 image in each folder
+        #Duyệt qua 199 ảnh trong mỗi folder
+        for j in range(1,200):
+            fname1 = get_file_name(j)
+            print(fname1)
+            fname2 = get_file_name(j+1)
+
+            fout = folder_out + "/" + fname1
+
+            fpath1 = ucsd_pred1_link + "/" + folder_name + "/" + fname1
+            fpath2 = ucsd_pred1_link + "/" + folder_name + "/" + fname2
+
+            if checking_file_exist(fpath1) and checking_file_exist(fpath2):
+                #Tính optical flow giữa ảnh thứ j và ảnh j+1, lưu vào thư mục output
+                f1 = cv2.imread(fpath1, cv2.IMREAD_GRAYSCALE)
+                f2 = cv2.imread(fpath2, cv2.IMREAD_GRAYSCALE)
+
+                hsv = mLKOF.calc(f1, f2)
+                bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+                cv2.imwrite(fout, bgr)
+
 
 def create_patch(uscd_pred1_optical_flow, output_link):
     #Checking if output_link is not exist, create ouput folder
@@ -84,47 +92,51 @@ def create_patch(uscd_pred1_optical_flow, output_link):
 
                         cv2.imwrite(fout, bgr)
 
-def cal_optical_flow(ucsd_pred1_link, output_link):
-    #Checking if output_link is not exist, create ouput folder
-    #Kiểm tra folder output có tồn tại không, nếu không thì tạo folder output
-    if not exists(output_link):
-        mkdir(output_link)
-
-    #Tính optical flow trên ảnh 238x158
-    mLKOF = LK.LK_Optical_Flow(238, 158)
-
-    #Go through 34 folder of UCSDpred1
-    #Duyệt qua 34 folder của tập UCSDpred1
+def del_white(batch_path):
+    is_first = True
     for i in range(1, 35):
+        folder_name = batch_path + "/" + get_folder_name(i) + "/"
+        print('Folder: ', folder_name)
+        for f in listdir(folder_name):
+            fname = folder_name + f
+            checking_file_exist(fname)
+            if isfile(fname) and is_image(f):
+                img = cv2.imread(fname, cv2.IMREAD_ANYCOLOR)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+                if not np.any(img[:,:,0:2]):
+                    if is_first == True:
+                        is_first = False
+                    else:
+                        remove(fname)
+                        print("Removed: ", fname)
+
+def rename_and_move(batch_path, folder_out):
+    list_file = []
+    #Get files path
+    print("Loading data")
+    for i in range(1, 35):
+        print("Loaded folder: ", i)
         folder_name = get_folder_name(i)
-        folder_out = output_link + "/" + folder_name
-        if not exists(folder_out):
-            mkdir(folder_out)
-        
-        #Go through 199 image in each folder
-        #Duyệt qua 199 ảnh trong mỗi folder
-        for j in range(1,200):
-            fname1 = get_file_name(j)
-            print(fname1)
-            fname2 = get_file_name(j+1)
-
-            fout = folder_out + "/" + fname1
-
-            fpath1 = ucsd_pred1_link + "/" + folder_name + "/" + fname1
-            fpath2 = ucsd_pred1_link + "/" + folder_name + "/" + fname2
-
-            if checking_file_exist(fpath1) and checking_file_exist(fpath2):
-                #Tính optical flow giữa ảnh thứ j và ảnh j+1, lưu vào thư mục output
-                f1 = cv2.imread(fpath1, cv2.IMREAD_GRAYSCALE)
-                f2 = cv2.imread(fpath2, cv2.IMREAD_GRAYSCALE)
-
-                hsv = mLKOF.calc(f1, f2)
-                bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-                cv2.imwrite(fout, bgr)
+        folder_path = batch_path + "/" + folder_name + "/"
+        for f in listdir(folder_path):
+            file_path = folder_path + f
+            if checking_file_exist(file_path) and is_image(file_path):
+                list_file.append(file_path)
+    #Rename and move to the same folder
+    if not exists(folder_out):
+                mkdir(folder_out)
+    for i in range(len(list_file)):
+        out_path = folder_out + "/" + str(i+1) + ".jpg"
+        rename(list_file[i], out_path)
+        print("Moved: ", list_file[i])
+         
+    
 
 if __name__ == '__main__':
     #cal_optical_flow("../UCSDped1/Train", "../UCSDped1/Train_")
-    create_patch("../UCSDped1/Train_", "../UCSDped1/TrainBatch")
+    #create_patch("../UCSDped1/Train_", "../UCSDped1/TrainBatch")
+    #del_white('../UCSDped1/TrainBatch')
+    rename_and_move('../UCSDped1/TrainBatch', '../UCSDped1/TrainBatch')
 
     print("Done")
 
